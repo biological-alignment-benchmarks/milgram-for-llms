@@ -24,16 +24,17 @@ The output data files including experiment transcripts are accessible at [https:
 Copyright (c) 2026 Roland Pihlakas and Jan Llenzl Dagohoy
 
 This file is part of "Milgram for LLMs", described in:
-\[Roland Pihlakas and Jan Llenzl Dagohoy\], "Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment", Arxiv, a working paper, May 2026. DOI: 10.48550/arXiv.xxxx.xxxxx
+\[Roland Pihlakas and Jan Llenzl Dagohoy\], "Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment", Arxiv, a working paper, May 2026. DOI: [https://doi.org/10.48550/arXiv.2605.21401](
+https://doi.org/10.48550/arXiv.2605.21401)
 
 Licensed under the GNU Affero General Public License v3.0 or later,
 WITH an additional term under section 7(b) requiring preservation
-of the above attribution notice. See the LICENSE.txt and NOTICE.txt 
+of the above attribution notice. See the [LICENSE.txt](LICENSE.txt) and [NOTICE.txt](NOTICE.txt) 
 files in the repository root for the full terms.
 
 **Attribution Requirement**: If you use this benchmark suite, please cite the source as follows:
 
-Roland Pihlakas and Jan Llenzl Dagohoy. Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment. Arxiv, a working paper, May 2026 (https://arxiv.org/abs/xxxx.xxxxx).
+Roland Pihlakas and Jan Llenzl Dagohoy. Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment. Arxiv, a working paper, May 2026 (https://arxiv.org/abs/2605.21401).
 
 Original upstream repository: [https://github.com/biological-alignment-benchmarks/milgram-for-llms](https://github.com/biological-alignment-benchmarks/milgram-for-llms)
 
