@@ -1,0 +1,568 @@
+# Copyright (c) 2026 Roland Pihlakas and Jan Llenzl Dagohoy
+#
+# This file is part of "Milgram for LLMs", described in:
+# [Roland Pihlakas and Jan Llenzl Dagohoy\], 
+# "Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment",
+# Arxiv, a working paper, May 2026. DOI: https://doi.org/10.48550/arXiv.2605.21401
+#
+# Licensed under the GNU Affero General Public License v3.0 or later,
+# WITH an additional term under section 7(b) requiring preservation
+# of the above attribution notice. See the LICENSE and NOTICE files
+# in the repository root for the full terms.
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Original upstream repository: 
+# https://github.com/biological-alignment-benchmarks/milgram-for-llms
+
+import os
+import sys
+import codecs
+import time
+import datetime
+import io
+import pickle
+import gzip
+from pathlib import Path
+import csv
+import re
+
+
+sentinel = object() # https://web.archive.org/web/20200221224620id_/http://effbot.org/zone/default-values.htm
+
+
+is_dev_machine = (os.name == 'nt')
+debugging = (is_dev_machine and sys.gettrace() is not None) and (1 == 1)  # debugging switches
+
+
+
+data_dir = "data"
+
+# NB! Under Windows need to prepend \\?\ in order to be able to create long filenames for cache files
+if os.name == 'nt':
+  # data_dir = "\\\\?\\" + os.path.abspath(data_dir)
+  data_dir = os.path.abspath(data_dir)
+
+if not os.path.exists(data_dir):
+  os.makedirs(data_dir)
+
+
+
+def safeprint(text = ""):
+
+  text = str(text).encode("utf-8", 'ignore').decode('ascii', 'ignore')
+  print(text)
+
+#/ def safeprint(text):
+
+
+def get_now_str():
+  now_str = datetime.datetime.strftime(datetime.datetime.now(), "%m.%d %H:%M:%S")
+  return now_str
+
+
+# https://stackoverflow.com/questions/5849800/tic-toc-functions-analog-in-python
+class Timer(object):
+  def __init__(self, name=None, quiet=False):
+    self.name = name
+    self.quiet = quiet
+
+  def __enter__(self):
+    if not self.quiet and self.name:
+      safeprint(get_now_str() + " : " + self.name + "...")
+
+    self.tstart = time.time()
+
+  def __exit__(self, type, value, traceback):
+    elapsed = time.time() - self.tstart
+
+    if not self.quiet:
+      if self.name:
+        safeprint(
+          get_now_str() + " : " + self.name + " totaltime: {}".format(elapsed)
+        )
+      else:
+        safeprint(get_now_str() + " : " + "totaltime: {}".format(elapsed))
+    # / if not quiet:
+
+# / class Timer(object):
+
+
+def wait_for_enter(message=None):
+  if os.name == "nt":
+    import msvcrt
+
+    if message is not None:
+      print(message)
+    msvcrt.getch()  # Uses less CPU on Windows than input() function. This becomes perceptible when multiple console windows with Python are waiting for input. Note that the graph window will be frozen, but will still show graphs.
+  else:
+    if message is None:
+      message = ""
+    input(message)
+
+
+def rename_temp_file(filename, make_backup = False):  # NB! make_backup is false by default since this operation would not be atomic
+
+  max_tries = 20
+  try_index = 1
+  while True:
+
+    try:
+
+      if make_backup and os.path.exists(filename):
+
+        if os.name == 'nt':   # rename is not atomic on windows and is unable to overwrite existing file. On UNIX there is no such problem
+          if os.path.exists(filename + ".old"):
+            if not os.path.isfile(filename + ".old"):
+              raise ValueError("" + filename + ".old" + " is not a file")
+            os.remove(filename + ".old")
+
+        os.rename(filename, filename + ".old")
+
+      #/ if make_backup and os.path.exists(filename):
+
+
+      if os.name == 'nt':   # rename is not atomic on windows and is unable to overwrite existing file. On UNIX there is no such problem
+        if os.path.exists(filename):
+          if not os.path.isfile(filename):
+            raise ValueError("" + filename + " is not a file")
+          os.remove(filename)
+
+      os.rename(filename + ".tmp", filename)
+
+      return
+
+    except Exception as ex:
+
+      if try_index >= max_tries:
+        raise
+
+      try_index += 1
+      safeprint("retrying temp file rename: " + filename)
+      time.sleep(5)
+      continue
+
+    #/ try:
+
+  #/ while True:
+
+#/ def rename_temp_file(filename):
+
+
+def read_file(filename, default_data = sentinel, quiet = False):
+  """Reads a pickled file"""
+
+  # https://web.archive.org/web/20200221224620id_/http://effbot.org/zone/default-values.htm
+  if default_data is sentinel:
+    default_data = {}
+
+  fullfilename = os.path.join(data_dir, filename)
+
+  if not os.path.exists(fullfilename + ".gz"):
+    return default_data
+
+  with Timer("file reading : " + filename, quiet):
+
+    try:
+      with open(fullfilename + ".gz", 'rb', 1024 * 1024) as fh:
+        compressed_data = fh.read()    # TODO: decompress directly during reading and without using intermediate buffer for async data
+        with io.BytesIO(compressed_data) as bfh:   
+          with gzip.open(bfh, 'rb') as gzip_file:
+            data = pickle.load(gzip_file)
+    except FileNotFoundError:
+      data = default_data
+
+  #/ with Timer("file reading : " + filename):
+
+  return data
+
+#/ def read_file(filename):
+
+
+def save_file(filename, data, quiet = False, make_backup = False):
+  """Writes to a pickled file"""
+
+  haslen = hasattr(data, '__len__')
+  message_template = "file saving {}" + (" num of all entries: {}" if haslen else "")
+  message = message_template.format(filename, len(data) if haslen else 0)
+
+  with Timer(message, quiet):
+
+    fullfilename = os.path.join(data_dir, filename)
+
+    with open(fullfilename + ".gz.tmp", 'wb', 1024 * 1024) as fh:
+      with gzip.GzipFile(fileobj=fh, filename=filename, mode='wb', compresslevel=compresslevel) as gzip_file:
+        pickle.dump(data, gzip_file)
+        gzip_file.flush() # NB! necessary to prevent broken gz archives on random occasions (does not depend on input data)
+      fh.flush()  # just in case
+
+    rename_temp_file(fullfilename + ".gz", make_backup)
+
+  #/ with Timer("file saving {}, num of all entries: {}".format(filename, len(cache))):
+
+#/ def save_file(filename, data):
+
+
+def save_txt(filename, str, quiet = False, make_backup = False, append = False, use_bom = True, encoding="utf-8"):
+  """Writes to a text file"""
+
+  message_template = "file saving {} num of characters: {}"
+  message = message_template.format(filename, len(str))
+
+  with Timer(message, quiet):
+
+    fullfilename = os.path.join(data_dir, filename)
+
+    for remaining_tries in range(10, 1, -1):
+      try: # try handling "RuntimeError: can't allocate read lock"
+
+        with open(fullfilename + ("" if append else ".tmp"), 'at' if append else 'wt', 1024 * 1024, encoding=encoding) as fh:    # wt format automatically handles line breaks depending on the current OS type
+          if use_bom:
+            # fh.write(codecs.BOM_UTF8 + str.encode("utf-8", "ignore"))
+            fh.write(codecs.BOM_UTF8.decode("utf-8"))    # TODO: encoding
+          fh.write(str)
+          fh.flush()  # just in case
+
+        break 
+      except Exception as ex:
+        if remaining_tries == 1:
+          raise
+        else:
+          time.sleep(1)
+
+  #/ with Timer("file saving {}, num of all entries: {}".format(filename, len(cache))):
+
+  if not append:
+    rename_temp_file(fullfilename, make_backup)
+
+#/ def save_txt(filename, data):
+
+
+class EventLog(object):
+  default_gzip_compresslevel = 6  # 6 is default level for gzip: https://linux.die.net/man/1/gzip and https://github.com/ebiggers/libdeflate
+
+  def __init__(
+    self,
+    experiment_dir,
+    events_fname,
+    headers,
+    gzip_log=False,
+    gzip_compresslevel=None,
+  ):
+    record_path = Path(os.path.join(experiment_dir, events_fname))
+    # logger.info(f"Saving records to disk at {record_path}")
+    record_path.parent.mkdir(exist_ok=True, parents=True)
+
+    if isinstance(headers, dict):
+      self.header_keys = list(headers.keys())  # used with log_event_from_dict
+      headers = list(headers.values())
+    else:
+      self.header_keys = headers
+
+    if gzip_log:
+      if gzip_compresslevel is None:
+        gzip_compresslevel = self.default_gzip_compresslevel
+      write_header = not os.path.exists(record_path + ".gz")
+      self.file = gzip.open(
+        record_path + ".gz",
+        mode="at",
+        newline="",
+        encoding="utf-8",
+        compresslevel=gzip_compresslevel,
+      )  # csv writer creates its own newlines therefore need to set newline to empty string here   # TODO: buffering for gzip
+    else:
+      write_header = not os.path.exists(record_path)
+      self.file = open(
+        record_path,
+        mode="at",
+        buffering=1024 * 1024,
+        newline="",
+        encoding="utf-8",
+      )  # csv writer creates its own newlines therefore need to set newline to empty string here
+
+    self.writer = csv.writer(self.file, quoting=csv.QUOTE_MINIMAL, delimiter="\t")
+
+    if (
+      write_header
+    ):  # TODO: if the file already exists then assert that the header is same
+      self.writer.writerow(headers)
+      # self.file.flush()
+
+  def log_event(self, event):
+
+    if isinstance(event, dict):
+      values = [event.get(key) for key in self.header_keys]
+    else:
+      values = event
+
+    # transformed_cols = []
+    # for index, col in enumerate(event):
+    #   # if type(col) == datetime.datetime:
+    #   #  col = datetime.datetime.strftime(col, '%Y.%m.%d-%H.%M.%S')
+    #   transformed_cols.append(col)
+
+    values = [
+      x.strip().replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")   # CSV/TSV format does not support these characters
+      # re.sub(r"[\n\r\t]", " ", x.strip())   # CSV/TSV format does not support these characters
+      if isinstance(x, str) 
+      else x 
+      for x in values
+    ]
+
+    self.writer.writerow(values)
+    # self.file.flush()
+
+  def flush(self):
+    self.file.flush()
+
+  def close(self):
+    self.file.flush()
+    self.file.close()
+
+# / class EventLog(object):
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+def init_gdrive_connections(creds):
+  from googleapiclient.discovery import build
+  import gspread
+
+  drive_service = build('drive', 'v3', credentials=creds)
+  gspread_connection = gspread.authorize(creds)
+  docs_service = build('docs', 'v1', credentials=creds)
+
+  return drive_service, gspread_connection, docs_service
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+def extract_folder_id(folder_url):
+  if "/folders/" in folder_url:
+    return folder_url.split("/folders/")[1].split("?")[0]
+  return folder_url
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+def create_timestamped_gdrive_folder(title_prefix, drive_service, parent_folder_id):
+
+  now_utc = datetime.datetime.now(datetime.timezone.utc)
+  timestamp_string = title_prefix + " " + now_utc.strftime("%Y-%m-%d %H-%M-%S UTC")
+
+  folder_metadata = {
+    'name': timestamp_string,
+    'mimeType': 'application/vnd.google-apps.folder',
+    'parents': [parent_folder_id]
+  }
+
+  while True:   # handle "service unavailable" errors
+    try:
+      folder = drive_service.files().create(
+        body=folder_metadata,
+        fields='id'
+      ).execute()
+      return folder.get('id')
+    
+    except Exception as ex:
+      print(ex)
+      print("Retrying...")
+      time.sleep(10)
+
+#/ def create_timestamped_gdrive_folder(title_prefix, drive_service, parent_folder_id):
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+# and Roland https://github.com/levitation-opensource/
+def send_tsv_files_to_google_spreadsheet(
+    gspread_connection,
+    target_google_drive_folder_url,
+    drive_filename,
+    colab_filenames,
+    sheet_names,
+  ):
+
+  folder_id = extract_folder_id(target_google_drive_folder_url)
+
+  
+  while True:   # handle "service unavailable" errors
+    try:
+      spreadsheet = gspread_connection.create(
+        drive_filename,
+        folder_id=folder_id
+      )
+      break
+    
+    except Exception as ex:
+      print(ex)
+      print("Retrying...")
+      time.sleep(10)
+
+  for index, colab_filename in enumerate(colab_filenames):
+
+    with open(colab_filename, "r") as fh:
+      data = fh.read()
+
+    rows = [line.split("\t") for line in data.strip().split("\n")]
+
+    title = (sheet_names + " " + str(index + 1)) if isinstance(sheet_names, str) else sheet_names[index]
+
+    while True:   # handle "service unavailable" errors
+      try:
+        if index == 0:
+          worksheet = spreadsheet.sheet1
+          worksheet.update_title(title)
+        else:
+          worksheet = spreadsheet.add_worksheet(title=title, rows=1000, cols=100)
+
+        worksheet.update(range_name='A1', values=rows)
+        break
+
+      except Exception as ex:
+        print(ex)
+        print("Retrying...")
+        time.sleep(10)
+
+  #/ for colab_filename in colab_filenames:
+
+  return spreadsheet.url
+
+#/ def send_tsv_file_to_google_spreadsheet()
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+# and Roland https://github.com/levitation-opensource/
+def send_to_google_spreadsheet(
+    gspread_connection,
+    target_google_drive_folder_url,
+    drive_filename,
+    sheets,
+    sheet_names,
+  ):
+
+  folder_id = extract_folder_id(target_google_drive_folder_url)
+
+    
+  while True:   # handle "service unavailable" errors
+    try:
+      spreadsheet = gspread_connection.create(
+        drive_filename,
+        folder_id=folder_id
+      )
+      break
+
+    except Exception as ex:
+      print(ex)
+      print("Retrying...")
+      time.sleep(10)
+
+  for index, rows in enumerate(sheets):
+
+    index_str = str(index + 1)
+    # NB! truncate the sheet name to 31 chars for compatibility with Pandas
+    if isinstance(sheet_names, str):
+      title = sheet_names[ : (31 - 1 - len(index_str))] + " " + index_str
+    else:
+      title = sheet_names[index][:31]
+
+    while True:   # handle "service unavailable" errors
+      try:
+        if index == 0:
+          worksheet = spreadsheet.sheet1
+          worksheet.update_title(title)
+        else:
+          worksheet = spreadsheet.add_worksheet(title=title, rows=1000, cols=100)
+
+        worksheet.update(range_name='A1', values=rows)
+        break
+
+      except Exception as ex:
+        print(ex)
+        print("Retrying...")
+        time.sleep(10)
+
+  #/ for colab_filename in colab_filenames:
+
+  return spreadsheet.url
+
+#/ def send_to_google_spreadsheet()
+
+
+# coded by Lenz https://www.linkedin.com/in/llenzl/
+def send_txt_file_to_google_docs(
+    drive_service,
+    docs_service,
+    target_google_drive_folder_url,
+    colab_filename
+  ):
+
+  with open(colab_filename, "r") as fh:
+    text = fh.read()
+
+  folder_id = extract_folder_id(target_google_drive_folder_url)
+
+  file_metadata = {
+    'name': colab_filename.replace(".txt", ""),
+    'mimeType': 'application/vnd.google-apps.document',
+    'parents': [folder_id]
+  }
+
+  while True:   # handle "service unavailable" errors
+    try:
+      doc = drive_service.files().create(
+        body=file_metadata,
+        fields='id'
+      ).execute()
+      doc_id = doc.get('id')
+      break
+    
+    except Exception as ex:
+      print(ex)
+      print("Retrying...")
+      time.sleep(10)
+
+  requests = [
+    {
+      'insertText': {
+        'location': {
+          'index': 1
+        },
+        'text': text
+      }
+    }
+  ]
+
+  while True:   # handle "service unavailable" errors
+    try:
+      docs_service.documents().batchUpdate(
+        documentId=doc_id,
+        body={'requests': requests}
+      ).execute()
+      break
+    
+    except Exception as ex:
+      print(ex)
+      print("Retrying...")
+      time.sleep(10)
+
+  return f"https://docs.google.com/document/d/{doc_id}/edit"
+
+#/ def send_txt_file_to_google_docs()
+
+
+def get_colab_code():
+
+  from google.colab import _message
+
+  # Fetch the notebook JSON as a string
+  notebook_json_string = _message.blocking_request('get_ipynb', request='', timeout_sec=5)
+  notebook_data = notebook_json_string['ipynb']
+
+  # Access all code cells
+  all_cells = notebook_data['cells']
+  result = [
+    "".join(cell['source'])   # Join all rows of a cell. Newlines are already part of the source.
+    for cell 
+    in all_cells 
+    if cell['cell_type'] == 'code'
+  ]
+  return result
+
+#/ def get_colab_code():

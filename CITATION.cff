@@ -9,6 +9,6 @@ authors:
   orcid: "https://orcid.org/0000-0002-2357-8476"
 title: "Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment"
 version: 0.9.0
-doi: 10.48550/arXiv.xxxx.xxxxx
+doi: 10.48550/arXiv.2605.21401
 date-released: 2026-05-20
 url: "https://github.com/biological-alignment-benchmarks/milgram-for-llms"
