@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Roland Pihlakas and Jan Llenzl Dagohoy
 #
 # This file is part of "Milgram for LLMs", described in:
-# [Roland Pihlakas and Jan Llenzl Dagohoy\], 
+# [Roland Pihlakas and Jan Llenzl Dagohoy], 
 # "Open-source LLMs administer maximum electric shocks in a Milgram-like obedience experiment",
 # Arxiv, a working paper, May 2026. DOI: https://doi.org/10.48550/arXiv.2605.21401
 #
